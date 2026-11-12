@@ -317,7 +317,7 @@ function renderDashboard() {
         '<td style="text-align:right"><div class="num">$' + fmt(s.total||0) + '</div>' +
           (Number(s.totalUSD)>0 ? '<div style="font-size:11px;color:var(--text2)">U$S ' + fmt(s.totalUSD) + '</div>' : '') + '</td>' +
         '<td style="text-align:right">' +
-          '<div class="num" style="color:var(--amber)">$' + fmt(s.minimo||0) + (card.autoDebit==='yes' ? ' <span style="font-size:10px;color:var(--text2)">(auto)</span>' : '') + '</div>' +
+          '<div class="num" style="color:var(--amber);cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="Cargar el mínimo como pago" data-sid="' + s.id + '" data-min="' + (s.minimo||0) + '" onclick="payMinimum(this.dataset.sid,this.dataset.min)">$' + fmt(s.minimo||0) + (card.autoDebit==='yes' ? ' <span style="font-size:10px;color:var(--text2)">(auto)</span>' : '') + '</div>' +
           (card.autoDebit==='yes' && extra>0 ? '<div style="font-size:10px;color:var(--amber);margin-top:1px">+$' + fmt(extra) + ' sobre mín.</div>' : '') +
         '</td>' +
         '<td style="text-align:right">' +
@@ -568,6 +568,16 @@ function updatePaymentRow(summaryId) {
       vencEl.style.color = '';
     }
   }
+}
+
+// Tocar el monto mínimo lo carga como pago en pesos
+function payMinimum(summaryId, minimo) {
+  var arsEl = document.getElementById('pay-ars-' + summaryId);
+  var full = document.getElementById('pay-full-' + summaryId);
+  if (!arsEl) return;
+  arsEl.value = Number(minimo) || '';
+  if (full) full.checked = false;
+  savePayment(summaryId);
 }
 
 function toggleFullPayment(summaryId, totalARS, totalUSD) {
