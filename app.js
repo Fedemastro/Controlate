@@ -274,31 +274,7 @@ function renderDashboard() {
   document.getElementById('d-min').textContent = '$' + fmt(totalMin);
   document.getElementById('d-usd').textContent = 'U$S ' + fmt(totalUSD);
 
-  // Calculate total pending (sum of restantes)
-  var totalPending = 0;
-  ms.forEach(function(s) {
-    var payment = (db.payments && db.payments[s.id]) ? db.payments[s.id] : {};
-    var paidARS = Number(payment.ars || 0);
-    var sTotal = Number(s.total || 0);
-    var isPaidFull = payment.full || paidARS >= sTotal;
-    if (!isPaidFull) totalPending += Math.max(0, sTotal - paidARS);
-  });
-  var pendEl = document.getElementById('d-pending');
-  if (pendEl) pendEl.textContent = '$' + fmt(totalPending);
-
-  // Calculate total pending (sum of restantes)
-  var totalPendiente = 0;
-  ms.forEach(function(s) {
-    var payment = (db.payments && db.payments[s.id]) ? db.payments[s.id] : {};
-    var paidARS = Number(payment.ars || 0);
-    var sTotal = Number(s.total || 0);
-    var sTotalUSD = Number(s.totalUSD || 0);
-    var sPaidUSD = Number(payment.usd || 0);
-    var sIsPaid = payment.full || (paidARS >= sTotal && (sTotalUSD === 0 || sPaidUSD >= sTotalUSD));
-    if (!sIsPaid) totalPendiente += Math.max(0, sTotal - paidARS);
-  });
-  var pendEl = document.getElementById('d-pendiente');
-  if (pendEl) pendEl.textContent = '$' + fmt(totalPendiente);
+  updatePendienteMetric(ms);
   var vencEl = document.getElementById('d-venc');
   if (nextVenc) {
     vencEl.innerHTML = nextVenc.toLocaleDateString('es-AR', { day:'2-digit', month:'short' }) +
@@ -504,6 +480,25 @@ function savePayment(summaryId) {
   savePaymentDB(summaryId, payment).catch(function(e){ console.warn('Payment save error:', e); });
 }
 
+// Suma de restantes ARS (pagos parciales incluidos) -> tarjeta "Pendiente del mes"
+function updatePendienteMetric(ms) {
+  if (!ms) {
+    var now = new Date();
+    var ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    var sel = document.getElementById('dash-month-sel');
+    if (sel && sel.value) ym = sel.value;
+    ms = db.summaries.filter(function(x){ return x.month === ym; });
+  }
+  var total = 0;
+  ms.forEach(function(s) {
+    var p = (db.payments && db.payments[s.id]) ? db.payments[s.id] : {};
+    if (p.full) return;
+    total += Math.max(0, Number(s.total || 0) - Number(p.ars || 0));
+  });
+  var el = document.getElementById('d-pendiente');
+  if (el) el.textContent = '$' + fmt(total);
+}
+
 function updatePaymentRow(summaryId) {
   var s = db.summaries.find(function(x){ return x.id === summaryId; });
   if (!s) return;
@@ -516,6 +511,8 @@ function updatePaymentRow(summaryId) {
   var isPartial = !isPaid && (paidARS > 0 || paidUSD > 0);
   var restanteARS = Math.max(0, totalARS - paidARS);
   var restanteUSD = Math.max(0, totalUSD2 - paidUSD);
+
+  updatePendienteMetric();
 
   // Update restante cell — find td by looking at the row
   var arsInput = document.getElementById('pay-ars-' + summaryId);
