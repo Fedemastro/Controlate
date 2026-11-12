@@ -915,6 +915,7 @@ let uploadedFileData = null;
 let uploadedFileType = null;
 
 function resetDropZone(msg) {
+  window._origPdfB64 = null;
   uploadedFileData = null;
   uploadedFileType = null;
   var zone = document.getElementById('drop-zone');
@@ -995,26 +996,47 @@ async function handleFile(inp) {
     return;
   }
 
-  // Encrypted PDF
-  zone.innerHTML = '<div class="icon">v</div><div>' + f.name + '</div><div class="hint">PDF protegido con contraseña</div>';
-  var pwd = prompt('Este PDF tiene contraseña. Ingresala para continuar:');
-  if (pwd === null) { resetDropZone('Cancelado'); return; }
+  // Encrypted PDF: pdf.js prueba primero con clave vacia (muchos bancos cifran
+  // con clave de usuario vacia: Adobe los abre sin pedir nada). Solo si falla
+  // pedimos la contraseña.
+  zone.innerHTML = '<div class="icon">v</div><div>' + f.name + '</div><div class="hint">PDF protegido, abriendo...</div>';
+  if (!window.pdfjsLib) { resetDropZone('No se pudo cargar el lector de PDF'); return; }
 
-  zone.innerHTML = '<div class="icon">v</div><div>' + f.name + '</div><div class="hint">Desencriptando...</div>';
-
-  try {
-    var result = await decryptPDF(arrayBuf, pwd);
-    uploadedFileData = result.pdfBase64;
-    uploadedFileType = 'application/pdf';
-    window._decryptedPages = null;
-    zone.innerHTML = '<div class="icon">v</div><div>' + f.name + ' (desencriptado)</div><div class="hint">Listo para extraer</div>';
-  } catch(e) {
-    var errMsg = e.message || '';
-    if (errMsg === 'wrong_password' || errMsg.toLowerCase().indexOf('password') !== -1) {
-      resetDropZone('Contraseña incorrecta. Tocá para intentar de nuevo.');
-    } else {
-      resetDropZone('Error al desencriptar: ' + errMsg);
+  var pdfDoc = null, pwd = '';
+  while (!pdfDoc) {
+    try {
+      pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuf.slice(0)), password: pwd }).promise;
+    } catch(e) {
+      if (e && e.name === 'PasswordException') {
+        var wrong = (e.code === 2) || pwd !== '';
+        pwd = prompt(wrong ? 'Contraseña incorrecta. Probá de nuevo:' : 'Este PDF tiene contraseña. Ingresala para continuar:');
+        if (pwd === null) { resetDropZone('Cancelado'); return; }
+        continue;
+      }
+      resetDropZone('Error al abrir el PDF: ' + ((e && e.message) || e));
+      return;
     }
+  }
+
+  zone.innerHTML = '<div class="icon">v</div><div>' + f.name + '</div><div class="hint">Procesando paginas...</div>';
+  try {
+    var pages = [];
+    var maxPages = Math.min(pdfDoc.numPages, 5);
+    for (var pn = 1; pn <= maxPages; pn++) {
+      var page = await pdfDoc.getPage(pn);
+      var vp = page.getViewport({ scale: 2 });
+      var canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      pages.push(canvas.toDataURL('image/jpeg', 0.85).split(',')[1]);
+    }
+    window._allPageImages = pages;
+    uploadedFileData = pages[0];
+    uploadedFileType = 'image/jpeg';
+    window._origPdfB64 = toBase64(bytes); // original, para guardarlo en Storage
+    zone.innerHTML = '<div class="icon">v</div><div>' + f.name + ' (protegido, abierto)</div><div class="hint">Listo para extraer</div>';
+  } catch(e) {
+    resetDropZone('Error al procesar el PDF: ' + ((e && e.message) || e));
   }
 }
 
@@ -1149,6 +1171,7 @@ async function confirmExtraction() {
     // Save file data BEFORE resetDropZone clears it
     var fileDataToUpload = uploadedFileData;
     var fileTypeToUpload = uploadedFileType;
+    if (window._origPdfB64) { fileDataToUpload = window._origPdfB64; fileTypeToUpload = 'application/pdf'; window._origPdfB64 = null; }
     resetDropZone();
 
     if (fileDataToUpload) {
